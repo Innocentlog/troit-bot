@@ -15,6 +15,7 @@
 """
 
 import asyncio
+import functools
 import html
 import json
 import logging
@@ -88,9 +89,10 @@ async def get_schedule_from_site() -> list:
 # ---------------- проверка админа ---------------
 
 def admin_only(func):
-    async def wrapper(event, *args, **kwargs):
-        # aiogram 3.7+ передаёт dispatcher как keyword — убираем, чтобы не падало
-        kwargs.pop("dispatcher", None)
+    @functools.wraps(func)
+    async def wrapper(event, *args, dispatcher=None, **kwargs):
+        # aiogram 3.7+ передаёт dispatcher; wraps сохраняет сигнатуру func,
+        # иначе внедрение state/прочих зависимостей ломается
         uid = event.from_user.id if event.from_user else 0
         if uid not in cfg.ADMIN_IDS:
             await event.answer("⛔ Доступ только для администраторов.")
