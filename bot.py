@@ -89,6 +89,8 @@ async def get_schedule_from_site() -> list:
 
 def admin_only(func):
     async def wrapper(event, *args, **kwargs):
+        # aiogram 3.7+ передаёт dispatcher как keyword — убираем, чтобы не падало
+        kwargs.pop("dispatcher", None)
         uid = event.from_user.id if event.from_user else 0
         if uid not in cfg.ADMIN_IDS:
             await event.answer("⛔ Доступ только для администраторов.")
