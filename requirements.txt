@@ -1,0 +1,3 @@
+aiogram>=3.4
+httpx>=0.27
+aiohttp-socks>=0.8
