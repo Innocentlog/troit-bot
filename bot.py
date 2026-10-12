@@ -113,6 +113,31 @@ def sched_kb():
         keyboard=[[KeyboardButton(text="✅ Завершить ввод"), KeyboardButton(text="❌ Отмена")]],
         resize_keyboard=True)
 
+def main_menu_kb():
+    """Постоянное меню: быстрые кнопки под полем ввода."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[
+            KeyboardButton(text="🏠 Меню"),
+            KeyboardButton(text="📅 Расписание"),
+            KeyboardButton(text="🕊 Записки"),
+        ]],
+        resize_keyboard=True)
+
+@dp.message(F.text == "🏠 Меню")
+@admin_only
+async def btn_menu(m: Message):
+    await cmd_start(m)
+
+@dp.message(F.text == "📅 Расписание")
+@admin_only
+async def btn_schedule(m: Message, state: FSMContext):
+    await cmd_schedule(m, state)
+
+@dp.message(F.text == "🕊 Записки")
+@admin_only
+async def btn_notes(m: Message):
+    await cmd_notes(m)
+
 def fmt_schedule(items: list) -> str:
     """Формат публикаций: даты без смайлов, жирные с подчёркиванием, "время название"."""
     out = [cfg.SCHEDULE_HEADER]
@@ -122,6 +147,18 @@ def fmt_schedule(items: list) -> str:
         day = html.escape(i.get("day_name", ""))
         out.append(f"<b><u>{day}</u></b>")
         out.append(f"{html.escape(t)} {name}".strip())
+    return "\n".join(out)
+
+
+def fmt_schedule_plain(items: list) -> str:
+    """Формат для VK/MAX: HTML-теги не поддерживаются, даты КАПСОМ."""
+    out = [re.sub(r"<[^>]+>", "", cfg.SCHEDULE_HEADER)]
+    for i in items:
+        t = (i.get("service_time") or "").strip()
+        name = (i.get("service_name") or "").strip()
+        day = (i.get("day_name") or "").strip().upper()
+        out.append(day)
+        out.append(f"{t} {name}".strip())
     return "\n".join(out)
 
 def sched_admin_kb():
@@ -138,12 +175,13 @@ DRAFT: list = []  # черновик расписания (в памяти; по
 @admin_only
 async def cmd_start(m: Message):
     await m.answer(
-        "⛪ <b>Бот Троицкого храма</b>\n\n"
+        "<b>Бот Троицкого храма</b>\n\n"
         "/schedule — ввести расписание на неделю и опубликовать\n"
         "/notes — записки за неделю\n"
-        "/gallery — управление галереей (через сайт)\n"
-        "/log — журнал публикаций",
-        reply_markup=ReplyKeyboardRemove())
+        "/admin — ссылка на админку сайта\n"
+        "/log — журнал публикаций\n\n"
+        "Или используйте кнопки меню ниже.",
+        reply_markup=main_menu_kb())
 
 @dp.message(Command("schedule"))
 @admin_only
@@ -264,6 +302,7 @@ async def pub_max(text: str):
 
 async def publish_all(status_msg: Message) -> str:
     text = fmt_schedule(DRAFT)
+    text_plain = fmt_schedule_plain(DRAFT)
     results = []
 
     ok, det = await safe(pub_site, list(DRAFT))
@@ -272,10 +311,10 @@ async def publish_all(status_msg: Message) -> str:
     ok, det = await safe(pub_telegram, text)
     results.append(("Telegram", ok, det)); await log_publish("telegram", ok, det)
 
-    ok, det = await safe(pub_vk, text)
+    ok, det = await safe(pub_vk, text_plain)
     results.append(("VK", ok, det)); await log_publish("vk", ok, det)
 
-    ok, det = await safe(pub_max, text)
+    ok, det = await safe(pub_max, text_plain)
     results.append(("MAX", ok, det)); await log_publish("max", ok, det)
 
     DRAFT.clear()
@@ -384,11 +423,13 @@ async def cmd_log(m: Message):
         lines.append(f"{'✅' if r['ok'] else '❌'} {r['ts']} · {r['target']}{(' · ' + r['detail']) if r['detail'] else ''}")
     await m.answer("\n".join(lines))
 
-@dp.message(Command("gallery"))
+@dp.message(Command("admin"))
 @admin_only
-async def cmd_gallery(m: Message):
-    await m.answer("🖼 Галерея управляется через сайт:\n"
-                   f"{cfg.SITE_URL}/#gallery → «#admin» → панель «Добавить фото».")
+async def cmd_admin(m: Message):
+    await m.answer(
+        "🔐 Авторизация администратора сайта:\n"
+        f"{cfg.SITE_URL}/#admin\n\n"
+        "Введите пароль админа на открывшейся странице.")
 
 # ---------------- main ---------------
 
