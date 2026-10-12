@@ -329,7 +329,7 @@ async def note_action(c: CallbackQuery):
         if action == "del":
             r = await cl.delete(f"{cfg.SITE_URL}/notes_api.php?id={nid}")
         else:
-            r = await cl.post(f"{cfg.SITE_URL}/notes_api.php?action=status",
+            r = await cl.post(f"{cfg.SITE_URL}/notes_api.php?do=status",
                               json={"id": int(nid), "status": action})
         ok = r.status_code == 200 and r.json().get("ok")
     await c.answer("Готово" if ok else "Ошибка", show_alert=not ok)
