@@ -198,7 +198,7 @@ async def sched_day(m: Message, state: FSMContext):
     t = m.text.strip()
     if t == "❌ Отмена":
         await state.clear(); DRAFT.clear()
-        return await m.answer("Отменено.", reply_markup=ReplyKeyboardRemove())
+        return await m.answer("Отменено.", reply_markup=main_menu_kb())
     if t == "✅ Завершить ввод":
         if not DRAFT:
             return await m.answer("Черновик пуст. Добавьте хотя бы одну службу.")
@@ -217,7 +217,7 @@ async def sched_time(m: Message, state: FSMContext):
     t = m.text.strip()
     if t == "❌ Отмена":
         await state.clear(); DRAFT.clear()
-        return await m.answer("Отменено.", reply_markup=ReplyKeyboardRemove())
+        return await m.answer("Отменено.", reply_markup=main_menu_kb())
     DRAFT[-1]["service_time"] = "" if t in ("-", "") else t
     await m.answer("Название службы (например «Литургия», «Всенощное бдение»):")
     await state.set_state(Sched.service)
@@ -228,7 +228,7 @@ async def sched_service(m: Message, state: FSMContext):
     t = m.text.strip()
     if t == "❌ Отмена":
         await state.clear(); DRAFT.clear()
-        return await m.answer("Отменено.", reply_markup=ReplyKeyboardRemove())
+        return await m.answer("Отменено.", reply_markup=main_menu_kb())
     DRAFT[-1]["service_name"] = t
     await m.answer(f"Добавлено: {DRAFT[-1]['day_name']} {DRAFT[-1]['service_time']} {t}\n\n"
                    "Введите следующий <b>день</b> или нажмите «✅ Завершить ввод».",
@@ -355,9 +355,7 @@ async def cmd_notes(m: Message):
         created = (n.get("created_at") or "")[:16]
         await m.answer(
             f"{status_lbl.get(n['status'],'')} <b>{type_lbl.get(n['note_type'],'')}</b> · {created}\n"
-            f"✝ <b>Имена:</b>\n{html.escape(n.get('names') or '')}\n"
-            + (f"\n💬 {html.escape(n['comment'])}" if n.get("comment") else "")
-            + (f"\n📞 {html.escape(n['contact'])}" if n.get("contact") else ""),
+            f"✝ <b>Имена:</b>\n{html.escape(n.get('names') or '')}",
             reply_markup=kb)
 
 @dp.callback_query(F.data.startswith("note:"))
@@ -435,7 +433,7 @@ async def cmd_clearlog(m: Message):
 async def cmd_admin(m: Message):
     await m.answer(
         "🔐 Авторизация администратора сайта:\n"
-        f"{cfg.SITE_URL}/#admin\n\n"
+        f"{cfg.SITE_URL}/admin.html\n\n"
         "Введите пароль админа на открывшейся странице.")
 
 # ---------------- main ---------------
