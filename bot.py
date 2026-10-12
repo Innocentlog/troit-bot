@@ -114,12 +114,14 @@ def sched_kb():
         resize_keyboard=True)
 
 def fmt_schedule(items: list) -> str:
-    lines = [html.escape(i.get("day_name") or "") for i in items]
+    """Формат публикаций: даты без смайлов, жирные с подчёркиванием, "время название"."""
     out = [cfg.SCHEDULE_HEADER]
     for i in items:
-        t = i.get("service_time") or ""
-        out.append(f"📅 <b>{html.escape(i.get('day_name',''))}</b>{' — ' + html.escape(t) if t else ''}")
-        out.append(f"   ✝ {html.escape(i.get('service_name',''))}")
+        t = (i.get("service_time") or "").strip()
+        name = html.escape(i.get("service_name", ""))
+        day = html.escape(i.get("day_name", ""))
+        out.append(f"<b><u>{day}</u></b>")
+        out.append(f"{html.escape(t)} {name}".strip())
     return "\n".join(out)
 
 def sched_admin_kb():
