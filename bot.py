@@ -423,6 +423,13 @@ async def cmd_log(m: Message):
         lines.append(f"{'✅' if r['ok'] else '❌'} {r['ts']} · {r['target']}{(' · ' + r['detail']) if r['detail'] else ''}")
     await m.answer("\n".join(lines))
 
+@dp.message(Command("clearlog"))
+@admin_only
+async def cmd_clearlog(m: Message):
+    with db() as c:
+        c.execute("DELETE FROM publish_log")
+    await m.answer("Журнал публикаций очищен.")
+
 @dp.message(Command("admin"))
 @admin_only
 async def cmd_admin(m: Message):
