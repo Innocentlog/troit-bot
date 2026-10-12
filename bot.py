@@ -309,9 +309,7 @@ async def cmd_notes(m: Message):
     status_lbl = {"new": "🆕", "read": "👁", "done": "✅"}
     for n in notes[:20]:  # Telegram: не более ~20 сообщений подряд
         kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="👁 Прочитано", callback_data=f"note:read:{n['id']}"),
-            InlineKeyboardButton(text="✅ Обработано", callback_data=f"note:done:{n['id']}"),
-            InlineKeyboardButton(text="🗑 Удалить", callback_data=f"note:del:{n['id']}"),
+            InlineKeyboardButton(text="👁 Прочитано", callback_data=f"note:done:{n['id']}"),
         ]])
         created = (n.get("created_at") or "")[:16]
         await m.answer(
@@ -326,12 +324,11 @@ async def cmd_notes(m: Message):
 async def note_action(c: CallbackQuery):
     _, action, nid = c.data.split(":")
     async with httpx.AsyncClient(timeout=15, headers={"X-Bot-Key": cfg.BOT_API_KEY}) as cl:
-        if action == "del":
-            r = await cl.delete(f"{cfg.SITE_URL}/notes_api.php?id={nid}")
-        else:
-            r = await cl.post(f"{cfg.SITE_URL}/notes_api.php?do=status",
-                              json={"id": int(nid), "status": action})
-        ok = r.status_code == 200 and r.json().get("ok")
+        # Прочитано = пометить done и удалить с сайта (записка считается обработанной)
+        r1 = await cl.post(f"{cfg.SITE_URL}/notes_api.php?do=status",
+                          json={"id": int(nid), "status": "done"})
+        r2 = await cl.delete(f"{cfg.SITE_URL}/notes_api.php?id={nid}")
+        ok = r1.status_code == 200 and r1.json().get("ok") and r2.status_code == 200 and r2.json().get("ok")
     await c.answer("Готово" if ok else "Ошибка", show_alert=not ok)
     if ok:
         try:
