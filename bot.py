@@ -242,6 +242,7 @@ async def pub_confirm(c: CallbackQuery, state: FSMContext):
     if action == "clear":
         DRAFT.clear(); await state.clear()
         await c.message.edit_text("Черновик очищен.")
+        await c.message.answer("Быстрое меню:", reply_markup=main_menu_kb())
         return await c.answer()
     if not DRAFT:
         return await c.answer("Черновик пуст", show_alert=True)
@@ -251,12 +252,14 @@ async def pub_confirm(c: CallbackQuery, state: FSMContext):
         asyncio.get_event_loop().call_later(3600, lambda: asyncio.ensure_future(publish_all(c.message)))
         await c.message.edit_text("⏳ Публикация отложена на 1 час.")
         await state.clear()
+        await c.message.answer("Быстрое меню:", reply_markup=main_menu_kb())
         return await c.answer()
 
     await c.message.edit_text("⏳ Публикую...")
     report = await publish_all(c.message)
     await c.message.edit_text(report)
     await state.clear()
+    await c.message.answer("Готово. Быстрое меню:", reply_markup=main_menu_kb())
     await c.answer()
 
 # ---------------- кросспостинг ---------------
