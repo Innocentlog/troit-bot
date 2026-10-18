@@ -1,0 +1,7 @@
+__pycache__/
+venv/
+bot.db
+log.txt
+data/
+*.pyc
+config.vps.example.py
