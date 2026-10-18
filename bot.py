@@ -110,7 +110,16 @@ class Sched(StatesGroup):
 
 def sched_kb():
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="✅ Завершить ввод"), KeyboardButton(text="❌ Отмена")]],
+        keyboard=[[KeyboardButton(text="📅 Новый день"), KeyboardButton(text="✅ Завершить ввод")],
+                  [KeyboardButton(text="❌ Отмена")]],
+        resize_keyboard=True)
+
+def sched_more_kb():
+    """Клавиатура после ввода службы: можно добавить ещё службу на этот же день."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="➕ Ещё служба на этот день")],
+                  [KeyboardButton(text="📅 Новый день"), KeyboardButton(text="✅ Завершить ввод")],
+                  [KeyboardButton(text="❌ Отмена")]],
         resize_keyboard=True)
 
 def main_menu_kb():
@@ -138,26 +147,62 @@ async def btn_schedule(m: Message, state: FSMContext):
 async def btn_notes(m: Message):
     await cmd_notes(m)
 
+_MONTHS = {"января":1, "февраля":2, "марта":3, "апреля":4, "мая":5, "июня":6,
+           "июля":7, "августа":8, "сентября":9, "октября":10, "ноября":11, "декабря":12}
+
+def _day_sort_key(day_name: str):
+    """Ключ сортировки по дате из строки вида '25 марта, Сб' / '2026-03-25' / '25 марта'."""
+    s = (day_name or "").strip().lower()
+    iso = re.search(r"(\d{4})-(\d{2})-(\d{2})", s)
+    if iso:
+        return (int(iso.group(1)), int(iso.group(2)), int(iso.group(3)))
+    m = re.search(r"(\d{1,2})\s*([а-яё]+)", s)
+    if m and m.group(2) in _MONTHS:
+        now = datetime.now()
+        try:
+            d = datetime(now.year, _MONTHS[m.group(2)], int(m.group(1)))
+            if d.date() < now.date():
+                d = datetime(now.year + 1, _MONTHS[m.group(2)], int(m.group(1)))
+            return (d.year, d.month, d.day)
+        except ValueError:
+            pass
+    return (9999, 12, 31)  # нераспознанные даты — в конец
+
+def _time_sort_key(t: str):
+    m = re.search(r"(\d{1,2}):(\d{2})", t or "")
+    return (int(m.group(1)), int(m.group(2))) if m else (99, 99)
+
+def sort_draft(items: list) -> list:
+    """Сортировка черновика: по дате, затем по времени службы."""
+    return sorted(items, key=lambda i: (_day_sort_key(i.get("day_name", "")),
+                                        _time_sort_key(i.get("service_time", ""))))
+
 def fmt_schedule(items: list) -> str:
-    """Формат публикаций: даты без смайлов, жирные с подчёркиванием, "время название"."""
+    """Формат публикаций: дни сгруппированы (заголовок дня один раз), службы по времени."""
     out = [cfg.SCHEDULE_HEADER]
-    for i in items:
+    last_day = None
+    for i in sort_draft(items):
         t = (i.get("service_time") or "").strip()
         name = html.escape(i.get("service_name", ""))
         day = html.escape(i.get("day_name", ""))
-        out.append(f"<b><u>{day}</u></b>")
+        if day != last_day:
+            out.append(f"<b><u>{day}</u></b>")
+            last_day = day
         out.append(f"{html.escape(t)} {name}".strip())
     return "\n".join(out)
 
 
 def fmt_schedule_plain(items: list) -> str:
-    """Формат для VK/MAX: HTML-теги не поддерживаются, даты КАПСОМ."""
+    """Формат для VK/MAX: HTML-теги не поддерживаются, даты КАПСОМ, дни сгруппированы."""
     out = [re.sub(r"<[^>]+>", "", cfg.SCHEDULE_HEADER)]
-    for i in items:
+    last_day = None
+    for i in sort_draft(items):
         t = (i.get("service_time") or "").strip()
         name = (i.get("service_name") or "").strip()
         day = (i.get("day_name") or "").strip().upper()
-        out.append(day)
+        if day != last_day:
+            out.append(day)
+            last_day = day
         out.append(f"{t} {name}".strip())
     return "\n".join(out)
 
@@ -207,8 +252,16 @@ async def sched_day(m: Message, state: FSMContext):
             "<b>Превью расписания:</b>\n\n" + fmt_schedule(DRAFT) +
             "\n\nПубликуем на: сайт, Telegram, VK, MAX?",
             reply_markup=sched_admin_kb())
+    if t == "➕ Ещё служба на этот день":
+        await m.answer("Время следующей службы (например 10:00, «-» — без времени):",
+                       reply_markup=sched_kb())
+        DRAFT.append({"day_name": DRAFT[-1]["day_name"], "service_time": "", "service_name": ""})
+        return await state.set_state(Sched.time)
+    if t == "📅 Новый день":
+        return await m.answer("Введите <b>день</b> (например: «15 марта, Сб» или «2026-03-15»):",
+                              reply_markup=sched_kb())
     DRAFT.append({"day_name": t, "service_time": "", "service_name": ""})
-    await m.answer("Время службы (например 09:00, можно пропустить — напишите «-»):")
+    await m.answer(f"День: <b>{html.escape(t)}</b>\n\nВремя службы (например 09:00, можно пропустить — напишите «-»):")
     await state.set_state(Sched.time)
 
 @dp.message(Sched.time, F.text)
@@ -231,8 +284,8 @@ async def sched_service(m: Message, state: FSMContext):
         return await m.answer("Отменено.", reply_markup=main_menu_kb())
     DRAFT[-1]["service_name"] = t
     await m.answer(f"Добавлено: {DRAFT[-1]['day_name']} {DRAFT[-1]['service_time']} {t}\n\n"
-                   "Введите следующий <b>день</b> или нажмите «✅ Завершить ввод».",
-                   reply_markup=sched_kb())
+                   "Что дальше? Можно добавить <b>ещё одну службу на этот же день</b>.",
+                   reply_markup=sched_more_kb())
     await state.set_state(Sched.day)
 
 @dp.callback_query(Sched.confirm, F.data.startswith("pub:"))
@@ -265,7 +318,8 @@ async def pub_confirm(c: CallbackQuery, state: FSMContext):
 # ---------------- кросспостинг ---------------
 
 async def pub_site(items: list):
-    """Очистить старые и вставить новые записи расписания на сайт."""
+    """Очистить старые и вставить новые записи расписания на сайт (в хронологическом порядке)."""
+    items = sort_draft(items)
     async with httpx.AsyncClient(timeout=20, headers={"X-Bot-Key": cfg.BOT_API_KEY}) as cl:
         # удалить все существующие
         existing = (await cl.get(f"{cfg.SITE_URL}/api.php")).json()
