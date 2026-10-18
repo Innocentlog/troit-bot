@@ -107,6 +107,7 @@ class Sched(StatesGroup):
     time = State()
     service = State()
     confirm = State()
+    edit_value = State()  # ввод нового значения при правке записи черновика
 
 def sched_kb():
     return ReplyKeyboardMarkup(
@@ -207,12 +208,33 @@ def fmt_schedule_plain(items: list) -> str:
     return "\n".join(out)
 
 def sched_admin_kb():
+    """Клавиатура превью: публикация, правка, очистка."""
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🚀 Опубликовать сейчас", callback_data="pub:now"),
         InlineKeyboardButton(text="🔁 Отложить на 1 час", callback_data="pub:delay3600"),
     ], [
+        InlineKeyboardButton(text="✏️ Редактировать", callback_data="pub:edit"),
         InlineKeyboardButton(text="🗑 Очистить черновик", callback_data="pub:clear"),
     ]])
+
+def edit_list_kb():
+    """Список записей черновика для правки."""
+    rows = [[InlineKeyboardButton(
+        text=f"{i.get('day_name','')} {i.get('service_time','')} {i.get('service_name','')}".strip()[:60],
+        callback_data=f"ed:{idx}")]
+        for idx, i in enumerate(DRAFT)]
+    rows.append([InlineKeyboardButton(text="↩️ Назад к превью", callback_data="ed:back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def edit_item_kb(idx: int):
+    """Действия над одной записью черновика."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✏️ День", callback_data=f"edit:day:{idx}"),
+         InlineKeyboardButton(text="⏰ Время", callback_data=f"edit:time:{idx}")],
+        [InlineKeyboardButton(text="📛 Название", callback_data=f"edit:name:{idx}")],
+        [InlineKeyboardButton(text="🗑 Удалить запись", callback_data=f"edit:del:{idx}")],
+        [InlineKeyboardButton(text="↩️ К списку", callback_data="pub:edit")],
+    ])
 
 DRAFT: list = []  # черновик расписания (в памяти; после публикации очищается)
 
@@ -250,10 +272,11 @@ async def sched_day(m: Message, state: FSMContext):
         await state.set_state(Sched.confirm)
         return await m.answer(
             "<b>Превью расписания:</b>\n\n" + fmt_schedule(DRAFT) +
-            "\n\nПубликуем на: сайт, Telegram, VK, MAX?",
+            "\n\nПубликуем на: сайт, Telegram, VK, MAX?\n"
+            "Если что-то ввели с ошибкой — нажмите «✏️ Редактировать».",
             reply_markup=sched_admin_kb())
     if t == "➕ Ещё служба на этот день":
-        await m.answer("Время следующей службы (например 10:00, «-» — без времени):",
+        await m.answer("Время следующей службы (например 10:00):",
                        reply_markup=sched_kb())
         DRAFT.append({"day_name": DRAFT[-1]["day_name"], "service_time": "", "service_name": ""})
         return await state.set_state(Sched.time)
@@ -261,7 +284,7 @@ async def sched_day(m: Message, state: FSMContext):
         return await m.answer("Введите <b>день</b> (например: «15 марта, Сб» или «2026-03-15»):",
                               reply_markup=sched_kb())
     DRAFT.append({"day_name": t, "service_time": "", "service_name": ""})
-    await m.answer(f"День: <b>{html.escape(t)}</b>\n\nВремя службы (например 09:00, можно пропустить — напишите «-»):")
+    await m.answer(f"День: <b>{html.escape(t)}</b>\n\nВремя службы (например 09:00):")
     await state.set_state(Sched.time)
 
 @dp.message(Sched.time, F.text)
@@ -272,7 +295,7 @@ async def sched_time(m: Message, state: FSMContext):
         await state.clear(); DRAFT.clear()
         return await m.answer("Отменено.", reply_markup=main_menu_kb())
     DRAFT[-1]["service_time"] = "" if t in ("-", "") else t
-    await m.answer("Название службы (например «Литургия», «Всенощное бдение»):")
+    await m.answer("Название службы:")
     await state.set_state(Sched.service)
 
 @dp.message(Sched.service, F.text)
@@ -297,6 +320,12 @@ async def pub_confirm(c: CallbackQuery, state: FSMContext):
         await c.message.edit_text("Черновик очищен.")
         await c.message.answer("Быстрое меню:", reply_markup=main_menu_kb())
         return await c.answer()
+    if action == "edit":
+        if not DRAFT:
+            return await c.answer("Черновик пуст", show_alert=True)
+        await state.set_state(Sched.confirm)
+        await c.message.edit_text("Какую запись поправить?", reply_markup=edit_list_kb())
+        return await c.answer()
     if not DRAFT:
         return await c.answer("Черновик пуст", show_alert=True)
 
@@ -314,6 +343,75 @@ async def pub_confirm(c: CallbackQuery, state: FSMContext):
     await state.clear()
     await c.message.answer("Готово. Быстрое меню:", reply_markup=main_menu_kb())
     await c.answer()
+
+_FIELD_PROMPTS = {"day": "Введите новый <b>день</b>:",
+                  "time": "Введите новое <b>время</b> (например 10:00, «-» — без времени):",
+                  "name": "Введите новое <b>название службы</b>:"}
+_FIELD_KEYS = {"day": "day_name", "time": "service_time", "name": "service_name"}
+
+@dp.callback_query(Sched.confirm, F.data.startswith("ed:"))
+@admin_only
+async def edit_pick(c: CallbackQuery, state: FSMContext):
+    idx = c.data.split(":")[1]
+    if idx == "back":
+        await state.set_state(Sched.confirm)
+        await c.message.edit_text("<b>Превью расписания:</b>\n\n" + fmt_schedule(DRAFT) +
+                                  "\n\nПубликуем на: сайт, Telegram, VK, MAX?",
+                                  reply_markup=sched_admin_kb())
+        return await c.answer()
+    i = int(idx)
+    if i < 0 or i >= len(DRAFT):
+        return await c.answer("Запись не найдена", show_alert=True)
+    it = DRAFT[i]
+    await c.message.edit_text(
+        f"Запись {i + 1}: <b>{html.escape(it['day_name'])}</b> "
+        f"{html.escape(it.get('service_time') or '')} {html.escape(it.get('service_name') or '')}".rstrip(),
+        reply_markup=edit_item_kb(i))
+    await c.answer()
+
+@dp.callback_query(Sched.confirm, F.data.startswith("edit:"))
+@admin_only
+async def edit_action(c: CallbackQuery, state: FSMContext):
+    _, field, idx = c.data.split(":")
+    i = int(idx)
+    if i < 0 or i >= len(DRAFT):
+        return await c.answer("Запись не найдена", show_alert=True)
+    if field == "del":
+        removed = DRAFT.pop(i)
+        if DRAFT:
+            await c.message.edit_text(f"Удалено: {removed['day_name']} {removed.get('service_time','')} {removed.get('service_name','')}".rstrip() +
+                                      "\n\nКакую запись поправить дальше?", reply_markup=edit_list_kb())
+        else:
+            await c.message.edit_text("Черновик пуст.")
+            await c.message.answer("Быстрое меню:", reply_markup=main_menu_kb())
+            await state.clear()
+        return await c.answer()
+    await state.update_data(edit_idx=i, edit_field=field)
+    await state.set_state(Sched.edit_value)
+    await c.message.answer(_FIELD_PROMPTS[field])
+    await c.answer()
+
+@dp.message(Sched.edit_value, F.text)
+@admin_only
+async def edit_value(m: Message, state: FSMContext):
+    t = m.text.strip()
+    if t == "❌ Отмена":
+        await state.set_state(Sched.confirm)
+        return await m.answer("Правка отменена.", reply_markup=None)
+    data = await state.get_data()
+    i, field = data.get("edit_idx"), data.get("edit_field")
+    key = _FIELD_KEYS.get(field)
+    if key is None or i is None or i >= len(DRAFT):
+        await state.set_state(Sched.confirm)
+        return await m.answer("Не удалось применить правку.")
+    if field == "time" and t in ("-", ""):
+        t = ""
+    DRAFT[i][key] = t
+    await state.set_state(Sched.confirm)
+    await m.answer(f"Обновлено: <b>{html.escape(DRAFT[i]['day_name'])}</b> "
+                   f"{html.escape(DRAFT[i].get('service_time') or '')} {html.escape(DRAFT[i].get('service_name') or '')}".rstrip() +
+                   "\n\nКакую запись поправить дальше?",
+                   reply_markup=edit_list_kb())
 
 # ---------------- кросспостинг ---------------
 
